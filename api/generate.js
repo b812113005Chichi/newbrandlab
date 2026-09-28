@@ -1,7 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 
 export default async function handler(req, res) {
-  // 1. 安全檢查與金鑰驗證
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
@@ -11,94 +10,76 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'Vercel 後端未設定 GEMINI_API_KEY 環境變數' });
   }
 
-  // 初始化 Google AI SDK
   const ai = new GoogleGenAI({ apiKey: apiKey });
   
-  // 接收前端 index.html 傳過來的品牌參數
-  // 💡 請確保這裡的欄位名稱 (brandDescription, colorPalette) 與你 index.html 傳過來的一致
-  const { brandDescription, colorPalette } = req.body; 
+  // 完美接收 BRANDLAB 前端傳來的 7 大煉金參數
+  const { 
+    brandName, brandType, representativeColors, 
+    productsOrServices, brandDescription, brandTraits, targetAudience 
+  } = req.body; 
 
-  // 建立提示詞 (無額外雜質，純粹針對你的需求)
-  const textPrompt = `你是一位頂級品牌設計師。根據以下品牌描述和色系，統整出符合風格的質感品牌企劃，並提供適合的設計資源連結（如字體、色碼表等）。
-  品牌描述：\${brandDescription || '未提供'}
-  指定色系：\${colorPalette || '未提供'}
+  const textPrompt = `你是一位國際頂級品牌視覺總監。請根據以下「AI品牌煉金術」參數，提煉出極具未來感與質感的品牌企劃主頁內容，並提供精選資源。
+  【品牌煉金參數】
+  - 品牌名稱：\${brandName || '（請由 AI 根據風格命名一個極具質感的名稱）'}
+  - 品牌種類：\${brandType || '未指定'}
+  - 代表色系：\${representativeColors || '未指定'}
+  - 商品或服務：\${productsOrServices || '未指定'}
+  - 品牌宗旨與敘述：\${brandDescription || '未指定'}
+  - 品牌核心特質：\${brandTraits || '未指定'}
+  - 目標客群：\${targetAudience || '未指定'}
   
-  請嚴格使用以下 JSON 格式回傳，不要包含任何 markdown 標籤（如 \`\`\`json）：
+  請嚴格使用以下格式回傳標準的 JSON 數據，不要包含任何 markdown 標籤（如 \`\`\`json）：
   {
-    "styleAnalysis": "風格分析文字",
-    "suggestedFonts": ["字體1", "字體2"],
-    "resourceLinks": [{"name": "資源名稱", "url": "網址"}]
+    "finalBrandName": "最終品牌名稱",
+    "styleAnalysis": "針對此品牌特質與色彩的深度美學風格分析文字（約120字，語氣需高奢且有儀式感）",
+    "resourceLinks": [
+      {"name": "Google Fonts (字體資源)", "url": "https://google.com"},
+      {"name": "Adobe Color (配色延伸)", "url": "https://adobe.com"},
+      {"name": "Unsplash (質感意境素材)", "url": "https://unsplash.com"}
+    ]
   }`;
 
-  const imagePrompt = `A premium, high-end professional brand hero image background, minimal aesthetic, suitable for website banner, lifestyle branding photograph, matching the description: ${brandDescription}, incorporating the colors: ${colorPalette}, 8k resolution, cinematic lighting.`;
+  const imagePrompt = `A premium luxury commercial branding hero image, minimal aesthetic, professional website banner background, reflecting a brand for \${brandType}. Concept: \${brandDescription}, featuring characteristics of \${brandTraits}. Visual palette must strictly complement the colors: \${representativeColors}. 8k resolution, cinematic lighting, photorealistic, no text overlay.`;
 
   let aiTextOutput = null;
   let imageUrl = null;
 
-  // ========================================================
-  // 階段一：生成品牌企劃文字 (Gemini 3.7 Flash ＋ 1.5 備援)
-  // ========================================================
+  // 階段一：文字生成 (3.7 Flash ＋ 1.5 備援機制)
   try {
-    console.log('嘗試使用第一優先模型: gemini-3.7-flash');
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.7-flash',
-      contents: textPrompt,
-    });
-    aiTextOutput = JSON.parse(response.text.trim());
+    const response = await ai.models.generateContent({ model: 'gemini-3.7-flash', contents: textPrompt });
+    let cleanText = response.text.trim().replace(/^```json/, '').replace(/```\$/, '');
+    aiTextOutput = JSON.parse(cleanText.trim());
   } catch (error) {
-    console.warn('Gemini 3.7 Flash 塞車或發生錯誤，啟動防塞車備援機制...', error.message);
+    console.warn('Gemini 3.7 擁擠，啟動防塞車備援線路...');
     try {
-      console.log('正在切換至備援模型: gemini-1.5-flash');
-      const fallbackResponse = await ai.models.generateContent({
-        model: 'gemini-1.5-flash', // 1.5 Flash 穩定度極高，免費層不易塞車
-        contents: textPrompt,
-      });
-      aiTextOutput = JSON.parse(fallbackResponse.text.trim());
+      const fallbackResponse = await ai.models.generateContent({ model: 'gemini-1.5-flash', contents: textPrompt });
+      let cleanText = fallbackResponse.text.trim().replace(/^```json/, '').replace(/```\$/, '');
+      aiTextOutput = JSON.parse(cleanText.trim());
     } catch (fallbackError) {
-      return res.status(503).json({ error: 'AI 文字生成模型目前全面過載，請稍後再試。' });
+      return res.status(503).json({ error: '煉金術核心目前能量極不穩定，請稍候再試。' });
     }
   }
 
-  // ========================================================
-  // 階段二：生成質感品牌圖 (Imagen 3 ＋ 備援)
-  // ========================================================
+  // 階段二：圖片生成 (Imagen 3 ＋ 備援機制)
   try {
-    console.log('嘗試使用主要圖片模型生成主頁圖...');
     const imageResponse = await ai.models.generateImages({
-      model: 'imagen-3',
-      prompt: imagePrompt,
-      config: {
-        numberOfImages: 1,
-        outputMimeType: 'image/png',
-        aspectRatio: '16:9',
-      },
+      model: 'imagen-3', prompt: imagePrompt,
+      config: { numberOfImages: 1, outputMimeType: 'image/png', aspectRatio: '16:9' }
     });
-    const imageBase64 = imageResponse.generatedImages.image.imageBytes;
-    imageUrl = `data:image/png;base64,${imageBase64}`;
+    imageUrl = `data:image/png;base64,\${imageResponse.generatedImages.image.imageBytes}`;
   } catch (imageError) {
-    console.warn('主要圖片模型擁擠，嘗試使用備援圖片模型...', imageError.message);
+    console.warn('主要圖片模型擁擠，換用備援圖片模型...');
     try {
-      const fallbackImageResponse = await ai.models.generateImages({
-        model: 'imagen-3.0-generate-002', // 備用高速圖片模型
-        prompt: imagePrompt,
-        config: {
-          numberOfImages: 1,
-          outputMimeType: 'image/png',
-          aspectRatio: '16:9',
-        },
+      const fallbackImg = await ai.models.generateImages({
+        model: 'imagen-3.0-generate-002', prompt: imagePrompt,
+        config: { numberOfImages: 1, outputMimeType: 'image/png', aspectRatio: '16:9' }
       });
-      const imageBase64 = fallbackImageResponse.generatedImages.image.imageBytes;
-      imageUrl = `data:image/png;base64,${imageBase64}`;
+      imageUrl = `data:image/png;base64,\${fallbackImg.generatedImages.image.imageBytes}`;
     } catch (fallbackImageError) {
-      // 如果連圖片備援都失敗，提供一張質感的預設灰色漸層預覽圖，不讓網站整個死掉
-      imageUrl = 'data:image/svg+xml;utf8,<svg xmlns="http://w3.org" width="800" height="450" viewBox="0 0 800 450"><rect width="100%" height="100%" fill="%23E2E8F0"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="24" fill="%2394A3B8">圖片生成稍候片刻，請重新點擊生成</text></svg>';
+      imageUrl = 'data:image/svg+xml;utf8,<svg xmlns="http://w3.org" width="800" height="450" viewBox="0 0 800 450"><rect width="100%" height="100%" fill="%2314142e"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="20" fill="%232be4ff">圖片具象化較慢，請重新點擊生成</text></svg>';
     }
   }
 
-  // 5. 成功整合兩者，回傳給前端 index.html
-  return res.status(200).json({
-    data: aiTextOutput,
-    imageUrl: imageUrl
-  });
+  return res.status(200).json({ data: aiTextOutput, imageUrl: imageUrl });
 }
 
