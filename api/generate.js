@@ -1,51 +1,36 @@
 import { GoogleGenAI } from '@google/genai';
 
-const MODEL = 'gemini-3.7-flash';
-
-export const config = { maxDuration: 60 };
-
 export default async function handler(req, res) {
+  // 1. 安全檢查
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'method not allowed' });
+    return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    return res.status(500).json({ error: 'server not configured' });
-  }
-
-  let body = req.body;
-  if (typeof body === 'string') {
-    try { body = JSON.parse(body); } catch { body = null; }
-  }
-  const prompt = body && body.prompt;
-  if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 8000) {
-    return res.status(400).json({ error: 'bad prompt' });
+    return res.status(500).json({ error: 'Vercel 後端未設定 GEMINI_API_KEY' });
   }
 
   try {
-    const ai = new GoogleGenAI({ apiKey });
+    // 2. 正確初始化 GoogleGenAI
+    const ai = new GoogleGenAI({ apiKey: apiKey });
+    
+    // 接收來自 index.html 的參數（請確保欄位名稱與 index.html 對齊）
+    const { userPrompt } = req.body; 
+
+    // 3. 呼叫 Gemini 3.7 Flash (最新標準語法)
     const response = await ai.models.generateContent({
-      model: MODEL,
-      contents: prompt,
-      config: {
-        systemInstruction: '你只回傳一個 JSON 物件，不要 markdown 程式碼框，不要任何說明文字。',
-        responseMimeType: 'application/json',
-        maxOutputTokens: 8192,
-      },
+      model: 'gemini-3.7-flash', 
+      contents: userPrompt || '請幫我測試這段文字', // 防止前端傳空值
     });
 
-    const text = response.text || '';
-    const match = text.match(/\{[\s\S]*\}/);
-    if (!match) return res.status(502).json({ error: 'no json' });
+    // 4. 回傳給前端
+    return res.status(200).json({ text: response.text });
 
-    let data;
-    try { data = JSON.parse(match[0]); } catch { return res.status(502).json({ error: 'invalid json' }); }
-    return res.status(200).json(data);
-  } catch (err) {
-    const status = err && (err.status || err.code);
-    if (status === 429) return res.status(429).json({ error: 'rate limited' });
-    console.error('Gemini error:', err && err.message);
-    return res.status(502).json({ error: 'upstream error' });
+  } catch (error) {
+    // 這裡會把錯誤記錄在 Vercel Logs 裡方便排查
+    console.error('Gemini API 呼叫失敗，詳細原因:', error.message || error);
+    return res.status(500).json({ error: `AI 呼叫失敗: ${error.message || error}` });
   }
 }
+
