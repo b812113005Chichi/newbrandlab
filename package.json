@@ -1,0 +1,9 @@
+{
+  "name": "my-brand-generator",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AI品牌煉金術 Brandlab - Vercel 部署版（前端靜態頁 + /api/generate 後端代呼叫 Anthropic API）",
+  "engines": {
+    "node": ">=18"
+  }
+}
